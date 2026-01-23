@@ -42,8 +42,15 @@
 2. 이번 프로젝트에서 잘 했다고 생각이 드는 점 : 잘 한건 없지만 EDA 자체는 재미지다.
 3. 이번 프로젝트에서 느낀 문제점 : 비이이익데이터를 모델로 돌리면? 
 4. 다음에는 이렇게 해야겠다 생각한 점 : 이해는 1% 정도 된 거 같은데 설명이 99% 안 된다. 
-<img width="835" height="671" alt="image" src="https://github.com/user-attachments/assets/c94caa3a-e279-4fa3-948a-b19ddd21edad" />
+
 
 # 리뷰어의 회고를 작성합니다.
 # 코드 리뷰 시 참고한 링크가 있다면 링크와 간략한 설명을 첨부합니다.
+<img width="835" height="671" alt="image" src="https://github.com/user-attachments/assets/c94caa3a-e279-4fa3-948a-b19ddd21edad" />
+ MSE를 3000 이하로 낮추기 위해 학습률을 높였고, epoch 수를 높여 과제를 해결했습니다.
+<img width="1227" height="459" alt="image" src="https://github.com/user-attachments/assets/0f8db622-2508-4a0d-91dc-5aa9a2cfeb96" />
+날씨와 자전거 대여수는 양의 상관관계, 습도는 음의 상관관계가 잘 나타났습니다.
+
 # 코드 리뷰를 통해 개선한 코드가 있다면 코드와 간략한 설명을 첨부합니다.
+
+epoch 수가 증가할 수로 MSE가 감소하는 것을 그래프로 표현한 것이 좋았습니다.
