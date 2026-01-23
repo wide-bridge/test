@@ -52,5 +52,6 @@
 날씨와 자전거 대여수는 양의 상관관계, 습도는 음의 상관관계가 잘 나타났습니다.
 
 # 코드 리뷰를 통해 개선한 코드가 있다면 코드와 간략한 설명을 첨부합니다.
+<img width="827" height="644" alt="image" src="https://github.com/user-attachments/assets/e838abe8-e898-40bc-a25f-94b5891858f5" />
 
 epoch 수가 증가할 수로 MSE가 감소하는 것을 그래프로 표현한 것이 좋았습니다.
