@@ -51,6 +51,9 @@ REGEX_PATTERNS = [
 MODEL_SAVE_PATH = os.path.join(MODEL_PATH, "chatbot_model.pt")
 TOKENIZER_PATH = os.path.join(MODEL_PATH, "tokenizer.pkl")
 
+# 이어서 학습 (True: 기존 모델 로드 후 학습, False: 새로 시작)
+RESUME_TRAINING = True
+
 # GPU 설정
 USE_GPU = True
 DEVICE = "cuda" if USE_GPU else "cpu"

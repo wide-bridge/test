@@ -301,7 +301,17 @@ def main():
     print("=" * 60)
     print("Step 5-6: 트랜스포머 모델 학습")
     print("=" * 60)
-    
+
+    # 환경 변수로 하이퍼파라미터 오버라이드 (run_pipeline.sh 대화형 입력 연동)
+    config.EPOCHS = int(os.environ.get("EPOCHS", config.EPOCHS))
+    config.DROPOUT_RATE = float(os.environ.get("DROPOUT", config.DROPOUT_RATE))
+    config.LEARNING_RATE = float(os.environ.get("LR", config.LEARNING_RATE))
+    config.BATCH_SIZE = int(os.environ.get("BATCH_SIZE", config.BATCH_SIZE))
+    config.MAX_SEQ_LENGTH = int(os.environ.get("MAX_SEQ_LENGTH", config.MAX_SEQ_LENGTH))
+
+    print(f"하이퍼파라미터: EPOCHS={config.EPOCHS} | DROPOUT={config.DROPOUT_RATE} | "
+          f"LR={config.LEARNING_RATE} | BATCH={config.BATCH_SIZE} | SEQ={config.MAX_SEQ_LENGTH}")
+
     # 데이터 로드
     if not os.path.exists(config.AUGMENTED_CSV):
         print(f"✗ Error: Augmented data not found")
@@ -361,7 +371,16 @@ def main():
     # 모델 생성
     print(f"\nCreating model...")
     model = TransformerChatbot(vocab_size=len(vocab)).to(device)
-    
+
+    # 이어서 학습 (resume)
+    if config.RESUME_TRAINING and os.path.exists(config.MODEL_SAVE_PATH):
+        print(f"✓ 기존 모델 발견: {config.MODEL_SAVE_PATH} → 이어서 학습합니다.")
+        model.load_state_dict(torch.load(config.MODEL_SAVE_PATH, map_location=device))
+    elif config.RESUME_TRAINING:
+        print(f"ℹ 기존 모델 없음 → 새로 학습을 시작합니다.")
+    else:
+        print(f"ℹ RESUME_TRAINING=False → 새로 학습을 시작합니다.")
+
     # 모델 파라미터 수
     num_params = sum(p.numel() for p in model.parameters())
     print(f"✓ Model parameters: {num_params:,}")

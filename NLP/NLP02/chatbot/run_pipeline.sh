@@ -52,13 +52,35 @@ echo "Note: augmentation uses ko.bin; loader will retry binary/text/FastText for
 python scripts/03_augmentation.py 2>&1 | tee -a "$LOG_DIR/augmentation.log"
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] Step 4 완료" >> "$LOG_DIR/pipeline.log"
 
+# 하이퍼파라미터 대화형 입력
+echo ""
+echo "=========================================="
+echo "하이퍼파라미터 설정 (Enter = 기본값 사용)"
+echo "=========================================="
+
+read -p "- 에폭 수 [기본값 20]: " INPUT_EPOCHS
+read -p "- 드롭아웃 [기본값 0.3]: " INPUT_DROPOUT
+read -p "- 러닝레이트 [기본값 0.0005]: " INPUT_LR
+read -p "- 배치 사이즈 [기본값 128]: " INPUT_BATCH
+read -p "- MAX_SEQ_LENGTH [기본값 50]: " INPUT_SEQ
+
+EPOCHS=${INPUT_EPOCHS:-20}
+DROPOUT=${INPUT_DROPOUT:-0.3}
+LR=${INPUT_LR:-0.0005}
+BATCH_SIZE=${INPUT_BATCH:-128}
+MAX_SEQ_LENGTH=${INPUT_SEQ:-50}
+
+echo ""
+echo "적용 값: EPOCHS=$EPOCHS | DROPOUT=$DROPOUT | LR=$LR | BATCH=$BATCH_SIZE | SEQ=$MAX_SEQ_LENGTH"
+
 # Step 5-6: 모델 학습
 echo ""
 echo "=========================================="
 echo "Step 5-6: 트랜스포머 모델 학습"
 echo "=========================================="
 
-python scripts/04_train.py 2>&1 | tee -a "$LOG_DIR/training.log"
+EPOCHS=$EPOCHS DROPOUT=$DROPOUT LR=$LR BATCH_SIZE=$BATCH_SIZE MAX_SEQ_LENGTH=$MAX_SEQ_LENGTH \
+    python scripts/04_train.py 2>&1 | tee -a "$LOG_DIR/training.log"
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] Step 5-6 완료" >> "$LOG_DIR/pipeline.log"
 
 echo ""
