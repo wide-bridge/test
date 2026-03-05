@@ -1,8 +1,8 @@
 """
-Step 7: 대화형 추론 스크립트
-- 학습된 chatbot_model.pt + tokenizer.pkl 자동 로드
-- Okt 토크나이저 사용 (Mecab 실패 시 폴백)
-- 답변과 함께 신뢰도 점수(top-1 softmax 확률 기하평균) 출력
+Step 7: Retrieval 기반 대화형 추론 스크립트
+- cleaned_data.csv 전체를 인코더로 임베딩 → 인덱스 구축
+- 사용자 입력을 같은 인코더로 임베딩 → 코사인 유사도 Top-3 검색
+- 1위 답변을 챗봇 응답으로, 2~3위는 유사 질문 참고로 출력
 - 실행: python scripts/05_inference.py
 """
 
@@ -13,10 +13,13 @@ import pickle
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
+import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
+
 
 # ──────────────────────────────────────────────────────────────
 # 모델 정의 (04_train.py와 동일 구조)
@@ -59,6 +62,13 @@ class TransformerChatbot(nn.Module):
             pe[:, 1::2] = torch.cos(position * div_term)
         return pe.unsqueeze(0)
 
+    def encode(self, src, src_key_padding_mask=None):
+        """인코더만 실행해 문장 표현 반환 (batch, seq, d_model)"""
+        src_emb = self.embedding(src) * np.sqrt(self.d_model)
+        src_emb = src_emb + self.positional_encoding[:, :src.size(1), :].to(src.device)
+        src_emb = self.dropout(src_emb)
+        return self.transformer_encoder(src_emb, src_key_padding_mask=src_key_padding_mask)
+
     def forward(self, src, tgt,
                 src_key_padding_mask=None,
                 tgt_key_padding_mask=None,
@@ -78,7 +88,7 @@ class TransformerChatbot(nn.Module):
 
 
 # ──────────────────────────────────────────────────────────────
-# 토크나이저 초기화 (Okt 우선, Mecab 폴백)
+# 토크나이저
 # ──────────────────────────────────────────────────────────────
 
 def _init_tokenizer():
@@ -93,26 +103,20 @@ def _init_tokenizer():
     try:
         from konlpy.tag import Mecab
         tok = Mecab()
-        print("✓ Mecab 토크나이저 로드")
+        print("✓ Mecab 토크나이저 로드 (폴백)")
         return tok
     except Exception:
         pass
-    print("⚠ whitespace 토크나이저 사용 (형태소 분석 불가)")
+    print("⚠ whitespace 토크나이저 사용")
     return None
 
 
 def _tokenize(sentence, tokenizer):
     try:
-        if tokenizer is None:
-            return sentence.split()
-        return tokenizer.morphs(sentence)
+        return tokenizer.morphs(sentence) if tokenizer else sentence.split()
     except Exception:
         return sentence.split()
 
-
-# ──────────────────────────────────────────────────────────────
-# 전처리
-# ──────────────────────────────────────────────────────────────
 
 def _preprocess(text):
     text = re.sub(r'\s+', ' ', text)
@@ -121,100 +125,103 @@ def _preprocess(text):
 
 
 # ──────────────────────────────────────────────────────────────
-# 추론
+# 인코딩 유틸
 # ──────────────────────────────────────────────────────────────
 
-def infer(question, model, word2idx, idx2word, tokenizer, device,
-          max_len=None, temperature=0.8, top_k=10, no_repeat_ngram=4):
-    """
-    question → (answer, confidence)
-
-    디코딩 전략:
-      - temperature: 확률 분포 조절 (< 1.0 이면 더 집중적, > 1.0 이면 더 다양)
-      - top_k sampling: 상위 k개 토큰 중 확률 비례 랜덤 선택
-      - 반복 억제: 직전 no_repeat_ngram개 토큰과 동일한 토큰 확률 0 처리
-    confidence: 각 스텝 선택 토큰의 softmax 확률 기하평균
-    """
-    if max_len is None:
-        max_len = config.MAX_SEQ_LENGTH
-
-    pad_id   = word2idx.get('<pad>', 0)
-    unk_id   = word2idx.get('<unk>', 1)
-    start_id = word2idx.get('<start>', 2)
-    end_id   = word2idx.get('<end>', 3)
-
-    text = _preprocess(question)
-    tokens = _tokenize(text, tokenizer)
-
-    # 인코더 입력 인코딩
+def _encode_sentence(sentence, tokenizer, word2idx, max_len):
+    """문장 → 패딩된 토큰 ID 텐서 (1, max_len)"""
+    pad_id = word2idx.get('<pad>', 0)
+    unk_id = word2idx.get('<unk>', 1)
+    tokens = _tokenize(_preprocess(sentence), tokenizer)
     ids = [word2idx.get(t, unk_id) for t in tokens][:max_len]
     ids += [pad_id] * (max_len - len(ids))
-    src = torch.tensor([ids], dtype=torch.long).to(device)
+    return torch.tensor([ids], dtype=torch.long)
+
+
+def _get_embedding(sentence, model, tokenizer, word2idx, device, max_len):
+    """
+    문장 → 인코더 출력의 평균 풀링 벡터 (d_model,)
+    패딩 토큰은 평균에서 제외
+    """
+    pad_id = word2idx.get('<pad>', 0)
+    src = _encode_sentence(sentence, tokenizer, word2idx, max_len).to(device)
     src_mask = (src == pad_id)
 
-    model.eval()
     with torch.no_grad():
-        tgt = torch.tensor([[start_id]], dtype=torch.long).to(device)
-        step_probs = []
+        enc_out = model.encode(src, src_key_padding_mask=src_mask)  # (1, seq, d_model)
 
-        for _ in range(max_len - 1):
-            tgt_len = tgt.size(1)
-            causal_mask = nn.Transformer.generate_square_subsequent_mask(tgt_len).to(device)
-            tgt_pad_mask = (tgt == pad_id)
+    # 패딩 제외 평균 풀링
+    non_pad = (~src_mask[0]).float().unsqueeze(-1)  # (seq, 1)
+    vec = (enc_out[0] * non_pad).sum(0) / non_pad.sum().clamp(min=1)
+    return F.normalize(vec, dim=0)  # L2 정규화
 
-            out = model(src, tgt,
-                        src_key_padding_mask=src_mask,
-                        tgt_key_padding_mask=tgt_pad_mask,
-                        tgt_mask=causal_mask)
 
-            logits = out[0, -1, :].clone()  # (vocab_size,)
+# ──────────────────────────────────────────────────────────────
+# 인덱스 구축
+# ──────────────────────────────────────────────────────────────
 
-            # 특수 토큰 억제
-            logits[start_id] = -1e9
-            logits[pad_id]   = -1e9
+def build_index(df, model, tokenizer, word2idx, device, max_len, batch_size=256):
+    """
+    cleaned_data.csv의 모든 질문을 인코더로 임베딩해 행렬로 저장
 
-            # 반복 억제: 직전 no_repeat_ngram개 토큰과 같으면 확률 0
-            recent = tgt[0, -no_repeat_ngram:].tolist()
-            for rid in set(recent):
-                logits[rid] = -1e9
+    Returns:
+        emb_matrix: (N, d_model) float32 텐서 (CPU)
+        questions:  list[str]
+        answers:    list[str]
+    """
+    questions = df['question'].tolist()
+    answers   = df['answer'].tolist()
+    pad_id    = word2idx.get('<pad>', 0)
+    unk_id    = word2idx.get('<unk>', 1)
 
-            # temperature 적용
-            logits = logits / temperature
+    all_vecs = []
+    model.eval()
 
-            # top-k masking: 상위 k개 제외 나머지 -inf
-            top_k_vals, _ = torch.topk(logits, top_k)
-            threshold = top_k_vals[-1]
-            logits[logits < threshold] = -1e9
+    print(f"인덱스 구축 중... ({len(questions)}개 질문)")
+    for start in range(0, len(questions), batch_size):
+        batch_q = questions[start:start + batch_size]
 
-            probs = torch.softmax(logits, dim=-1)
+        # 배치 토큰화 + 패딩
+        batch_ids = []
+        for q in batch_q:
+            tokens = _tokenize(_preprocess(q), tokenizer)
+            ids = [word2idx.get(t, unk_id) for t in tokens][:max_len]
+            ids += [pad_id] * (max_len - len(ids))
+            batch_ids.append(ids)
 
-            # 확률 비례 샘플링
-            next_id = torch.multinomial(probs, num_samples=1).item()
-            step_probs.append(probs[next_id].item())
+        src = torch.tensor(batch_ids, dtype=torch.long).to(device)
+        src_mask = (src == pad_id)
 
-            # EOS 도달 시 종료
-            if next_id == end_id:
-                break
+        with torch.no_grad():
+            enc_out = model.encode(src, src_key_padding_mask=src_mask)  # (B, seq, d)
 
-            tgt = torch.cat(
-                [tgt, torch.tensor([[next_id]], dtype=torch.long).to(device)],
-                dim=1
-            )
+        non_pad = (~src_mask).float().unsqueeze(-1)           # (B, seq, 1)
+        vecs = (enc_out * non_pad).sum(1) / non_pad.sum(1).clamp(min=1)  # (B, d)
+        vecs = F.normalize(vecs, dim=1)
+        all_vecs.append(vecs.cpu())
 
-    # 토큰 → 문자열
-    resp_ids = tgt[0].cpu().tolist()[1:]  # <start> 제거
-    resp_tokens = [idx2word.get(i, '') for i in resp_ids]
-    if '<end>' in resp_tokens:
-        resp_tokens = resp_tokens[:resp_tokens.index('<end>')]
-    answer = ''.join(resp_tokens).strip()
+    emb_matrix = torch.cat(all_vecs, dim=0)  # (N, d_model)
+    print(f"✓ 인덱스 구축 완료 (shape: {emb_matrix.shape})")
+    return emb_matrix, questions, answers
 
-    # 신뢰도: 기하평균 (log 합산 후 exp)
-    if step_probs:
-        confidence = float(np.exp(np.mean(np.log(np.clip(step_probs, 1e-9, 1.0)))))
-    else:
-        confidence = 0.0
 
-    return answer, confidence
+# ──────────────────────────────────────────────────────────────
+# 검색
+# ──────────────────────────────────────────────────────────────
+
+def retrieve(query, model, tokenizer, word2idx, device, max_len,
+             emb_matrix, questions, answers, top_k=3):
+    """
+    query → 코사인 유사도 기반 Top-k (score, question, answer) 리스트
+    """
+    q_vec = _get_embedding(query, model, tokenizer, word2idx, device, max_len)  # (d,)
+    scores = emb_matrix.to(device) @ q_vec  # (N,) — L2 정규화 후 내적 = 코사인 유사도
+
+    top_scores, top_idx = scores.topk(top_k)
+    results = []
+    for score, idx in zip(top_scores.cpu().tolist(), top_idx.cpu().tolist()):
+        results.append((score, questions[idx], answers[idx]))
+    return results
 
 
 # ──────────────────────────────────────────────────────────────
@@ -222,42 +229,51 @@ def infer(question, model, word2idx, idx2word, tokenizer, device,
 # ──────────────────────────────────────────────────────────────
 
 def main():
-    print("=" * 55)
-    print("한국어 챗봇 추론")
-    print("=" * 55)
+    print("=" * 60)
+    print("한국어 챗봇 추론 (Retrieval 방식)")
+    print("=" * 60)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Device: {device}")
 
-    # 토크나이저 로드
-    if not os.path.exists(config.TOKENIZER_PATH):
-        print(f"✗ tokenizer.pkl 없음: {config.TOKENIZER_PATH}")
-        print("  먼저 run_pipeline.sh 또는 04_train.py를 실행하세요.")
-        return
+    # ── 파일 존재 확인 ──
+    for path, label in [
+        (config.TOKENIZER_PATH, "tokenizer.pkl"),
+        (config.MODEL_SAVE_PATH, "chatbot_model.pt"),
+        (config.CLEANED_CSV,     "cleaned_data.csv"),
+    ]:
+        if not os.path.exists(path):
+            print(f"✗ {label} 없음: {path}")
+            print("  먼저 run_pipeline.sh를 실행하세요.")
+            return
 
+    # ── tokenizer.pkl 로드 ──
     with open(config.TOKENIZER_PATH, 'rb') as f:
         tok_data = pickle.load(f)
-    word2idx = tok_data['word2idx']
-    idx2word = tok_data['idx2word']
+    word2idx   = tok_data['word2idx']
+    idx2word   = tok_data['idx2word']
     vocab_size = len(word2idx)
     print(f"✓ tokenizer.pkl 로드 완료 (vocab: {vocab_size})")
 
-    # 모델 로드
-    if not os.path.exists(config.MODEL_SAVE_PATH):
-        print(f"✗ chatbot_model.pt 없음: {config.MODEL_SAVE_PATH}")
-        print("  먼저 run_pipeline.sh 또는 04_train.py를 실행하세요.")
-        return
-
+    # ── 모델 로드 ──
     model = TransformerChatbot(vocab_size).to(device)
-    model.load_state_dict(torch.load(config.MODEL_SAVE_PATH, map_location=device))
+    model.load_state_dict(torch.load(config.MODEL_SAVE_PATH, map_location=device, weights_only=True))
     model.eval()
     print(f"✓ chatbot_model.pt 로드 완료")
 
-    # 토크나이저 초기화
+    # ── 토크나이저 ──
     tokenizer = _init_tokenizer()
 
+    # ── cleaned_data.csv 로드 + 인덱스 구축 ──
+    df = pd.read_csv(config.CLEANED_CSV)
+    print(f"✓ cleaned_data.csv 로드 완료 ({len(df)}개 행)")
+
+    max_len    = config.MAX_SEQ_LENGTH
+    emb_matrix, questions, answers = build_index(
+        df, model, tokenizer, word2idx, device, max_len)
+
     print("\n대화를 시작합니다. 종료하려면 'q'를 입력하세요.")
-    print("-" * 55)
+    print("-" * 60)
 
     while True:
         try:
@@ -273,13 +289,24 @@ def main():
         if not user_input:
             continue
 
-        answer, confidence = infer(
-            user_input, model, word2idx, idx2word, tokenizer, device
+        results = retrieve(
+            user_input, model, tokenizer, word2idx, device, max_len,
+            emb_matrix, questions, answers, top_k=3
         )
 
-        print(f"챗봇: {answer}")
-        print(f"신뢰도: {confidence * 100:.1f}%")
-        print("-" * 55)
+        # 1위: 챗봇 답변
+        best_score, best_q, best_a = results[0]
+        print(f"\n챗봇: {best_a}")
+        print(f"유사도: {best_score * 100:.1f}%  (매칭 질문: {best_q})")
+
+        # 2~3위: 유사 질문 참고
+        if len(results) > 1:
+            print("\n[유사 질문 참고]")
+            for rank, (score, q, a) in enumerate(results[1:], start=2):
+                print(f"  {rank}위 ({score * 100:.1f}%)  Q: {q}")
+                print(f"          A: {a}")
+
+        print("-" * 60)
 
 
 if __name__ == "__main__":
