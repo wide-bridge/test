@@ -125,11 +125,15 @@ def _preprocess(text):
 # ──────────────────────────────────────────────────────────────
 
 def infer(question, model, word2idx, idx2word, tokenizer, device,
-          max_len=None):
+          max_len=None, temperature=0.8, top_k=10, no_repeat_ngram=4):
     """
     question → (answer, confidence)
 
-    confidence: 각 디코딩 스텝에서의 top-1 softmax 확률의 기하평균
+    디코딩 전략:
+      - temperature: 확률 분포 조절 (< 1.0 이면 더 집중적, > 1.0 이면 더 다양)
+      - top_k sampling: 상위 k개 토큰 중 확률 비례 랜덤 선택
+      - 반복 억제: 직전 no_repeat_ngram개 토큰과 동일한 토큰 확률 0 처리
+    confidence: 각 스텝 선택 토큰의 softmax 확률 기하평균
     """
     if max_len is None:
         max_len = config.MAX_SEQ_LENGTH
@@ -163,22 +167,37 @@ def infer(question, model, word2idx, idx2word, tokenizer, device,
                         tgt_key_padding_mask=tgt_pad_mask,
                         tgt_mask=causal_mask)
 
-            logits = out[0, -1, :]  # (vocab_size,)
+            logits = out[0, -1, :].clone()  # (vocab_size,)
 
-            # <start>, <pad> 억제
+            # 특수 토큰 억제
             logits[start_id] = -1e9
             logits[pad_id]   = -1e9
 
-            probs      = torch.softmax(logits, dim=-1)
-            top1_id    = probs.argmax().item()
-            top1_prob  = probs[top1_id].item()
-            step_probs.append(top1_prob)
+            # 반복 억제: 직전 no_repeat_ngram개 토큰과 같으면 확률 0
+            recent = tgt[0, -no_repeat_ngram:].tolist()
+            for rid in set(recent):
+                logits[rid] = -1e9
 
-            if top1_id == end_id:
+            # temperature 적용
+            logits = logits / temperature
+
+            # top-k masking: 상위 k개 제외 나머지 -inf
+            top_k_vals, _ = torch.topk(logits, top_k)
+            threshold = top_k_vals[-1]
+            logits[logits < threshold] = -1e9
+
+            probs = torch.softmax(logits, dim=-1)
+
+            # 확률 비례 샘플링
+            next_id = torch.multinomial(probs, num_samples=1).item()
+            step_probs.append(probs[next_id].item())
+
+            # EOS 도달 시 종료
+            if next_id == end_id:
                 break
 
             tgt = torch.cat(
-                [tgt, torch.tensor([[top1_id]], dtype=torch.long).to(device)],
+                [tgt, torch.tensor([[next_id]], dtype=torch.long).to(device)],
                 dim=1
             )
 
