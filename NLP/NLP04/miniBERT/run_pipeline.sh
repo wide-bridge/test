@@ -3,14 +3,19 @@
 # mini BERT Pretrain 전체 파이프라인
 #
 # 사용법:
-#   bash run_pipeline.sh                        # 기본값 사용
-#   bash run_pipeline.sh --max_samples 100000   # 샘플 수 지정
+#   bash run_pipeline.sh                          # 기본값 사용
+#   bash run_pipeline.sh --max_samples 100000     # 샘플 수 지정
+#   bash run_pipeline.sh --skip-step1             # Step 1 건너뜀
+#   bash run_pipeline.sh --skip-step1 --skip-step2  # Step 3만 실행
 # ============================================================
 
 set -e   # 오류 발생 시 즉시 중단
 
 # ── 상단 변수 (필요 시 수정) ─────────────────────────────────
 MAX_SAMPLES=50000   # 기본 샘플 수 (0 이면 전체 코퍼스 사용)
+SKIP_STEP1=false
+SKIP_STEP2=false
+SKIP_STEP3=false
 
 # ── 인자 파싱 ────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -19,9 +24,21 @@ while [[ $# -gt 0 ]]; do
             MAX_SAMPLES="$2"
             shift 2
             ;;
+        --skip-step1)
+            SKIP_STEP1=true
+            shift
+            ;;
+        --skip-step2)
+            SKIP_STEP2=true
+            shift
+            ;;
+        --skip-step3)
+            SKIP_STEP3=true
+            shift
+            ;;
         *)
             echo "Unknown argument: $1"
-            echo "Usage: bash run_pipeline.sh [--max_samples N]"
+            echo "Usage: bash run_pipeline.sh [--max_samples N] [--skip-step1] [--skip-step2] [--skip-step3]"
             exit 1
             ;;
     esac
@@ -51,6 +68,9 @@ log_pipeline() {
 banner "mini BERT Pretrain Pipeline 시작"
 echo "  시작 시간  : $(ts)"
 echo "  MAX_SAMPLES: ${MAX_SAMPLES} (0=전체)"
+echo "  skip-step1 : ${SKIP_STEP1}"
+echo "  skip-step2 : ${SKIP_STEP2}"
+echo "  skip-step3 : ${SKIP_STEP3}"
 echo "  로그 디렉토리: $LOG_DIR"
 echo ""
 
@@ -61,46 +81,71 @@ log_pipeline "파이프라인 시작 (MAX_SAMPLES=${MAX_SAMPLES})"
 # Step 1: Build Tokenizer
 # ============================================================
 banner "Step 1: SentencePiece 토크나이저 학습"
-echo "  시작: $(ts)"
-log_pipeline "Step 1 시작"
 
-python scripts/01_build_tokenizer.py 2>&1 | tee "$LOG_DIR/01_tokenizer.log"
+SPM_MODEL="/workspace/NLP/NLP04/miniBERT/data/processed/spm.model"
+if [ "$SKIP_STEP1" = true ]; then
+    echo "  [SKIP] --skip-step1 지정됨"
+    log_pipeline "Step 1 건너뜀 (--skip-step1)"
+elif [ -f "$SPM_MODEL" ]; then
+    echo "  [SKIP] spm.model 이미 존재: $SPM_MODEL"
+    log_pipeline "Step 1 건너뜀 (spm.model 존재)"
+else
+    echo "  시작: $(ts)"
+    log_pipeline "Step 1 시작"
 
-echo "  완료: $(ts)"
-log_pipeline "Step 1 완료"
+    python scripts/01_build_tokenizer.py 2>&1 | tee "$LOG_DIR/01_tokenizer.log"
 
-# special token ID 검증 결과 확인
-echo ""
-echo "[검증] special token IDs:"
-grep -E '\[PAD\]|\[UNK\]|\[CLS\]|\[SEP\]|\[MASK\]' "$LOG_DIR/01_tokenizer.log" || true
+    echo "  완료: $(ts)"
+    log_pipeline "Step 1 완료"
+
+    echo ""
+    echo "[검증] special token IDs:"
+    grep -E '\[PAD\]|\[UNK\]|\[CLS\]|\[SEP\]|\[MASK\]' "$LOG_DIR/01_tokenizer.log" || true
+fi
 
 # ============================================================
 # Step 2: Preprocess Data
 # ============================================================
 banner "Step 2: 데이터 전처리 (MLM + NSP)"
-echo "  시작: $(ts)"
-log_pipeline "Step 2 시작"
 
-if [ "$MAX_SAMPLES" -gt 0 ] 2>/dev/null; then
-    python scripts/02_preprocess_data.py --max_samples "$MAX_SAMPLES" 2>&1 | tee "$LOG_DIR/02_preprocess.log"
+MEMMAP_CHECK="/workspace/NLP/NLP04/miniBERT/data/processed/input_ids.dat"
+if [ "$SKIP_STEP2" = true ]; then
+    echo "  [SKIP] --skip-step2 지정됨"
+    log_pipeline "Step 2 건너뜀 (--skip-step2)"
+elif [ -f "$MEMMAP_CHECK" ]; then
+    echo "  [SKIP] memmap 파일 이미 존재: $MEMMAP_CHECK"
+    log_pipeline "Step 2 건너뜀 (memmap 존재)"
 else
-    python scripts/02_preprocess_data.py 2>&1 | tee "$LOG_DIR/02_preprocess.log"
-fi
+    echo "  시작: $(ts)"
+    log_pipeline "Step 2 시작"
 
-echo "  완료: $(ts)"
-log_pipeline "Step 2 완료"
+    if [ "$MAX_SAMPLES" -gt 0 ] 2>/dev/null; then
+        python scripts/02_preprocess_data.py --max_samples "$MAX_SAMPLES" 2>&1 | tee "$LOG_DIR/02_preprocess.log"
+    else
+        python scripts/02_preprocess_data.py 2>&1 | tee "$LOG_DIR/02_preprocess.log"
+    fi
+
+    echo "  완료: $(ts)"
+    log_pipeline "Step 2 완료"
+fi
 
 # ============================================================
 # Step 3: Pretrain
 # ============================================================
 banner "Step 3: mini BERT 사전학습"
-echo "  시작: $(ts)"
-log_pipeline "Step 3 시작"
 
-python scripts/03_pretrain.py 2>&1 | tee "$LOG_DIR/03_pretrain.log"
+if [ "$SKIP_STEP3" = true ]; then
+    echo "  [SKIP] --skip-step3 지정됨"
+    log_pipeline "Step 3 건너뜀 (--skip-step3)"
+else
+    echo "  시작: $(ts)"
+    log_pipeline "Step 3 시작"
 
-echo "  완료: $(ts)"
-log_pipeline "Step 3 완료"
+    python scripts/03_pretrain.py 2>&1 | tee "$LOG_DIR/03_pretrain.log"
+
+    echo "  완료: $(ts)"
+    log_pipeline "Step 3 완료"
+fi
 
 # loss 그래프 저장 확인
 echo ""

@@ -395,39 +395,146 @@ def save_loss_plot(history: list):
 
 
 # ══════════════════════════════════════════════════════════════
+# 인터랙티브 제어
+# ══════════════════════════════════════════════════════════════
+
+def interactive_config_update(cfg: dict) -> dict:
+    """훈련 시작 전 하이퍼파라미터를 항목별로 확인하고 변경한다."""
+    EDITABLE = [
+        ('d_model',       int,   'd_model'),
+        ('num_heads',     int,   'num_heads'),
+        ('num_layers',    int,   'num_layers'),
+        ('d_ff',          int,   'd_ff'),
+        ('batch_size',    int,   'batch_size'),
+        ('epochs',        int,   'epochs'),
+        ('learning_rate', float, 'learning_rate'),
+        ('dropout',       float, 'dropout'),
+    ]
+
+    print("\n" + "=" * 60)
+    print("  하이퍼파라미터 설정  (Enter = 기본값 유지)")
+    print("=" * 60)
+
+    changed = {}
+    for key, cast, label in EDITABLE:
+        current = cfg.get(key)
+        try:
+            val = input(f"  {label} [{current}]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if val:
+            try:
+                new_val = cast(val)
+                cfg[key] = new_val
+                changed[key] = (current, new_val)
+            except ValueError:
+                print(f"  [skip] 잘못된 입력 '{val}' — 기본값 {current} 유지")
+
+    config_path = os.path.join(BASE_DIR, 'config.json')
+    if changed:
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+        print(f"\n  [저장] config.json 업데이트:")
+        for k, (old, new) in changed.items():
+            print(f"    {k}: {old} → {new}")
+    else:
+        print("\n  [변경 없음] config.json 유지")
+
+    return cfg
+
+
+def ask_resume(model_dir: str):
+    """
+    체크포인트 존재 시 이어서 훈련 여부를 묻는다.
+
+    Returns:
+        resume      (bool)
+        ckpt_path   (str | None)
+        start_epoch (int)    — 1-based, 이어서 시작할 epoch
+        best_loss   (float)
+    """
+    best_path  = os.path.join(model_dir, 'bert_best.pt')
+    final_path = os.path.join(model_dir, 'bert_final.pt')
+
+    ckpt_path = None
+    if os.path.exists(best_path):
+        ckpt_path = best_path
+    elif os.path.exists(final_path):
+        ckpt_path = final_path
+
+    if ckpt_path is None:
+        return False, None, 1, float('inf')
+
+    print(f"\n[checkpoint] 기존 체크포인트가 감지되었습니다: {os.path.basename(ckpt_path)}")
+    try:
+        ans = input("  이어서 훈련하시겠습니까? (y/n): ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        ans = 'n'
+        print()
+
+    if ans == 'y':
+        ckpt        = torch.load(ckpt_path, map_location='cpu')
+        start_epoch = ckpt.get('epoch', 0) + 1
+        best_loss   = ckpt.get('loss', float('inf'))
+        print(f"  → epoch {start_epoch}부터 이어서 학습 (best_loss={best_loss:.4f})")
+        return True, ckpt_path, start_epoch, best_loss
+    else:
+        print("  → 처음부터 새로 학습합니다.")
+        return False, None, 1, float('inf')
+
+
+# ══════════════════════════════════════════════════════════════
 # main
 # ══════════════════════════════════════════════════════════════
 
 def main():
+    global VOCAB_SIZE   # train_epoch 내부에서 참조
+
     print("=" * 60)
     print(" Step 3: mini BERT Pretraining")
     print("=" * 60)
 
-    # ── 데이터 로드 ───────────────────────────────────────────
+    # ── 1. 하이퍼파라미터 인터랙티브 확인/변경 ───────────────
+    cfg = interactive_config_update(CFG)
+
+    # 업데이트된 config로 로컬 변수 재추출
+    VOCAB_SIZE  = cfg['vocab_size']
+    d_model     = cfg['d_model']
+    num_heads   = cfg['num_heads']
+    num_layers  = cfg['num_layers']
+    d_ff        = cfg['d_ff']
+    max_seq_len = cfg['max_seq_len']
+    dropout     = cfg['dropout']
+    batch_size  = cfg['batch_size']
+    epochs      = cfg['epochs']
+    lr          = cfg['learning_rate']
+
+    # ── 2. 데이터 로드 ────────────────────────────────────────
     meta_path = os.path.join(PROC_DIR, 'dataset_meta.json')
     with open(meta_path, 'r') as f:
         meta = json.load(f)
     n_samples = meta['n_samples']
-    print(f"[data] {n_samples:,} samples, max_seq_len={MAX_SEQ_LEN}")
+    print(f"\n[data] {n_samples:,} samples, max_seq_len={max_seq_len}")
 
-    dataset = BERTPretrainDataset(PROC_DIR, MAX_SEQ_LEN, n_samples)
+    dataset = BERTPretrainDataset(PROC_DIR, max_seq_len, n_samples)
     loader  = DataLoader(
         dataset,
-        batch_size=BATCH_SIZE,
+        batch_size=batch_size,
         shuffle=True,
-        num_workers=0,        # Windows 호환
+        num_workers=0,
         pin_memory=(device.type == 'cuda'),
     )
 
-    # ── 모델 초기화 ───────────────────────────────────────────
+    # ── 3. 모델 초기화 ────────────────────────────────────────
     model = BERTForPretraining(
         vocab_size=VOCAB_SIZE,
-        d_model=D_MODEL,
-        num_heads=NUM_HEADS,
-        num_layers=NUM_LAYERS,
-        d_ff=D_FF,
-        max_seq_len=MAX_SEQ_LEN,
-        dropout=DROPOUT,
+        d_model=d_model,
+        num_heads=num_heads,
+        num_layers=num_layers,
+        d_ff=d_ff,
+        max_seq_len=max_seq_len,
+        dropout=dropout,
     ).to(device)
 
     total_params = sum(p.numel() for p in model.parameters())
@@ -435,29 +542,50 @@ def main():
     print(f"\n[model] Total parameters : {total_params:,}")
     print(f"[model] Trainable params  : {train_params:,}")
 
-    # ── ExperimentTracker 초기화 ──────────────────────────────
-    tracker = ExperimentTracker(cfg=CFG, total_params=total_params)
+    # ── 4. 이어서 훈련 여부 확인 ─────────────────────────────
+    resume, ckpt_path, start_epoch, best_loss = ask_resume(MODEL_DIR)
+    best_epoch = start_epoch - 1   # 아직 아무 epoch도 완료 안 한 상태
 
-    # ── Optimizer & Scheduler ─────────────────────────────────
-    optimizer    = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-2)
-    total_steps  = len(loader) * EPOCHS
+    if resume:
+        ckpt = torch.load(ckpt_path, map_location=device)
+        model.load_state_dict(ckpt['model_state'])
+        print(f"  [loaded] model weights from {os.path.basename(ckpt_path)}")
+
+    # ── 5. ExperimentTracker 초기화 ──────────────────────────
+    tracker = ExperimentTracker(cfg=cfg, total_params=total_params)
+
+    # ── 6. Optimizer & Scheduler ──────────────────────────────
+    optimizer    = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-2)
+    total_steps  = len(loader) * epochs
     warmup_steps = int(total_steps * 0.10)
-    scheduler    = WarmupLinearSchedule(optimizer, warmup_steps, total_steps)
+
+    if resume:
+        optimizer.load_state_dict(ckpt['optimizer'])
+        # 이미 완료된 step만큼 scheduler 앞으로 이동
+        scheduler      = WarmupLinearSchedule(optimizer, warmup_steps, total_steps)
+        resumed_steps  = (start_epoch - 1) * len(loader)
+        scheduler.last_epoch = resumed_steps - 1
+        scheduler.step()
+        print(f"  [scheduler] resumed at step {resumed_steps}")
+    else:
+        scheduler = WarmupLinearSchedule(optimizer, warmup_steps, total_steps)
+
     print(f"[scheduler] total_steps={total_steps}, warmup_steps={warmup_steps}")
 
-    # ── Loss ──────────────────────────────────────────────────
+    # ── 7. Loss ───────────────────────────────────────────────
     mlm_criterion = nn.CrossEntropyLoss(ignore_index=-100)
     nsp_criterion = nn.CrossEntropyLoss()
 
-    # ── 학습 루프 ─────────────────────────────────────────────
+    # ── 8. 학습 루프 ──────────────────────────────────────────
     history    = []
-    best_loss  = float('inf')
-    best_epoch = -1
+    if best_loss == float('inf'):
+        best_loss  = float('inf')
+        best_epoch = -1
 
-    for epoch in range(1, EPOCHS + 1):
-        t0     = time.time()
-        stats  = train_epoch(model, loader, optimizer, scheduler,
-                             mlm_criterion, nsp_criterion)
+    for epoch in range(start_epoch, epochs + 1):
+        t0      = time.time()
+        stats   = train_epoch(model, loader, optimizer, scheduler,
+                              mlm_criterion, nsp_criterion)
         elapsed = time.time() - t0
 
         stats['epoch'] = epoch
@@ -465,7 +593,7 @@ def main():
         tracker.log_epoch(epoch, stats)
 
         print(
-            f"Epoch {epoch:02d}/{EPOCHS} | "
+            f"Epoch {epoch:02d}/{epochs} | "
             f"total={stats['total_loss']:.4f} | "
             f"mlm={stats['mlm_loss']:.4f} | "
             f"nsp={stats['nsp_loss']:.4f} | "
@@ -483,30 +611,30 @@ def main():
         if stats['total_loss'] < best_loss:
             best_loss  = stats['total_loss']
             best_epoch = epoch
-            ckpt_path  = os.path.join(MODEL_DIR, 'bert_best.pt')
+            ckpt_save  = os.path.join(MODEL_DIR, 'bert_best.pt')
             torch.save({
-                'epoch':      epoch,
+                'epoch':       epoch,
                 'model_state': model.state_dict(),
-                'optimizer':  optimizer.state_dict(),
-                'loss':       best_loss,
-                'config':     CFG,
-            }, ckpt_path)
+                'optimizer':   optimizer.state_dict(),
+                'loss':        best_loss,
+                'config':      cfg,
+            }, ckpt_save)
             print(f"  → best checkpoint saved (epoch={epoch}, loss={best_loss:.4f})")
 
-    # ── 최종 체크포인트 ───────────────────────────────────────
+    # ── 9. 최종 체크포인트 ────────────────────────────────────
     final_path = os.path.join(MODEL_DIR, 'bert_final.pt')
-    torch.save({'epoch': EPOCHS, 'model_state': model.state_dict(), 'config': CFG},
+    torch.save({'epoch': epochs, 'model_state': model.state_dict(), 'config': cfg},
                final_path)
 
-    # ── 학습 히스토리 저장 ────────────────────────────────────
+    # ── 10. 학습 히스토리 저장 ────────────────────────────────
     hist_path = os.path.join(MODEL_DIR, 'train_history.json')
     with open(hist_path, 'w') as f:
         json.dump(history, f, indent=2)
 
-    # ── 시각화 ────────────────────────────────────────────────
+    # ── 11. 시각화 ────────────────────────────────────────────
     save_loss_plot(history)
 
-    # ── ExperimentTracker 저장 ────────────────────────────────
+    # ── 12. ExperimentTracker 저장 ────────────────────────────
     tracker.save(best_epoch=best_epoch)
 
     print("\n" + "=" * 60)
