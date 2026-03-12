@@ -1,9 +1,12 @@
+import sys
+sys.path.insert(0, '/workspace/test/NLP/NLP05')
+
 import os, sys, json, random
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from transformers import (
-    GPT2Model, PreTrainedTokenizerFast, AdamW,
+    GPT2Model, PreTrainedTokenizerFast,
     get_linear_schedule_with_warmup
 )
 
@@ -148,7 +151,7 @@ def main():
     loader  = DataLoader(dataset, batch_size=cfg.RM_BATCH_SIZE, shuffle=True)
     print(f"RM 데이터 수: {len(dataset)}")
 
-    optimizer = AdamW(model.parameters(), lr=cfg.RM_LR)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.RM_LR)
     total_steps = len(loader) * cfg.RM_EPOCHS
     scheduler = get_linear_schedule_with_warmup(
         optimizer,
