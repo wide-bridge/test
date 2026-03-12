@@ -180,16 +180,14 @@ def main():
     # 테스트 프롬프트 (SFT 데이터에서 샘플링)
     test_prompts = []
     with open(cfg.SFT_DATA_PATH, "r", encoding="utf-8") as f:
-        lines = f.readlines()
-    samples = random.sample(lines, min(20, len(lines)))
-    for line in samples:
-        item = json.loads(line)
+        raw = json.load(f)
+    samples = random.sample(raw, min(20, len(raw)))
+    for item in samples:
         test_prompts.append(item["prompt"])
 
     # 정답 참조 응답 (BLEU/ROUGE용)
     references = []
-    for line in samples:
-        item = json.loads(line)
+    for item in samples:
         references.append(item["completion"])
 
     print(f"\n{'='*60}")
