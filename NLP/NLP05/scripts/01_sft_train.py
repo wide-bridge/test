@@ -3,7 +3,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from transformers import (
     GPT2LMHeadModel, PreTrainedTokenizerFast,
-    AdamW, get_linear_schedule_with_warmup
+    get_linear_schedule_with_warmup
 )
 
 # config는 RunPod 실행 시 절대경로로 import
@@ -86,7 +86,7 @@ def main():
     print(f"SFT 데이터 수: {len(dataset)}")
 
     # 옵티마이저 + 스케줄러
-    optimizer  = AdamW(model.parameters(), lr=cfg.SFT_LR)
+    optimizer  = torch.optim.AdamW(model.parameters(), lr=cfg.SFT_LR)
     total_steps = len(loader) * cfg.SFT_EPOCHS
     scheduler  = get_linear_schedule_with_warmup(
         optimizer,
