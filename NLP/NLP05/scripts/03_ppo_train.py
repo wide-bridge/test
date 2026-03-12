@@ -13,7 +13,12 @@ from transformers import (
 sys.path.append("/workspace/NLP/NLP05")
 import config as cfg
 from scripts.experiment_tracker import ExperimentTracker
-from scripts.rm_train_02 import RewardModel
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location(
+    "rm_train", "/workspace/test/NLP/NLP05/scripts/02_rm_train.py")
+rm_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(rm_module)
+RewardModel = rm_module.RewardModel
 
 random.seed(cfg.RANDOM_SEED)
 torch.manual_seed(cfg.RANDOM_SEED)
