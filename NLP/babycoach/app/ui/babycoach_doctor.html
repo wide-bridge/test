@@ -1,0 +1,624 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BabyCoach 의사 대시보드</title>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --card: #ffffff;
+      --text: #1a2340;
+      --muted: #6b7a99;
+      --blue: #2d6cdf;
+      --blue-light: #e8f0fd;
+      --blue-mid: rgba(45,108,223,.15);
+      --green: #1fa060;
+      --green-light: #e6f8ef;
+      --orange: #e07a10;
+      --orange-light: #fff4e5;
+      --red: #d63030;
+      --red-light: #fdeaea;
+      --border: rgba(45,108,223,.14);
+      --shadow: 0 4px 20px rgba(45,108,223,.09);
+      --radius: 18px;
+      --radius-sm: 12px;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: 'Nunito', 'Noto Sans KR', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    body::before {
+      content: '';
+      position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      background:
+        radial-gradient(700px 400px at 0% 0%,   rgba(45,108,223,.06), transparent 60%),
+        radial-gradient(500px 350px at 100% 80%, rgba(45,108,223,.05), transparent 55%);
+    }
+
+    .wrap {
+      position: relative; z-index: 1;
+      max-width: 680px; margin: 0 auto;
+      padding: 24px 18px 48px;
+    }
+
+    /* ════════════ 헤더 ════════════ */
+    .header {
+      background: var(--card);
+      border-radius: var(--radius);
+      border: 1.5px solid var(--border);
+      box-shadow: var(--shadow);
+      padding: 16px 22px;
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 18px;
+    }
+    .header-left { display: flex; align-items: center; gap: 14px; }
+    .header-logo {
+      width: 44px; height: 44px; border-radius: 12px;
+      background: var(--blue-light);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; flex-shrink: 0;
+    }
+    .header-title { font-size: 18px; font-weight: 900; color: var(--blue); }
+    .header-sub   { font-size: 12px; font-weight: 600; color: var(--muted); margin-top: 2px; }
+    .doctor-badge {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--blue-light);
+      border: 1.5px solid rgba(45,108,223,.22);
+      border-radius: 999px;
+      padding: 6px 14px;
+    }
+    .doctor-badge .d-avatar {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: var(--blue); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 900; flex-shrink: 0;
+    }
+    .doctor-badge .d-name { font-size: 13px; font-weight: 800; color: var(--blue); }
+
+    /* ════════════ 섹션 제목 ════════════ */
+    .section-header {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 14px;
+    }
+    .section-header .sh-icon {
+      width: 32px; height: 32px; border-radius: 8px;
+      background: var(--blue-light);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px; flex-shrink: 0;
+    }
+    .section-header .sh-title { font-size: 15px; font-weight: 900; color: var(--text); }
+    .section-header .sh-count {
+      margin-left: auto;
+      background: var(--blue); color: #fff;
+      border-radius: 999px; padding: 2px 10px;
+      font-size: 12px; font-weight: 800;
+    }
+
+    /* ════════════ 케이스 카드 ════════════ */
+    .case-card {
+      background: var(--card);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      margin-bottom: 18px;
+      overflow: hidden;
+      transition: box-shadow .25s;
+    }
+    .case-card:hover { box-shadow: 0 6px 28px rgba(45,108,223,.16); }
+
+    .case-header {
+      background: linear-gradient(135deg, var(--blue-light), rgba(255,255,255,.5));
+      border-bottom: 1.5px solid var(--border);
+      padding: 14px 18px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .case-id { font-size: 12px; font-weight: 700; color: var(--muted); }
+    .case-time { font-size: 11px; font-weight: 600; color: var(--muted); }
+    .case-status-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      border-radius: 999px; padding: 4px 12px;
+      font-size: 11px; font-weight: 900;
+    }
+    .case-status-badge.pending  { background: rgba(255,200,0,.15); color: #8a6a00; border: 1.5px solid rgba(255,200,0,.40); }
+    .case-status-badge.approved { background: var(--green-light); color: var(--green); border: 1.5px solid rgba(31,160,96,.35); }
+    .case-status-badge.modified { background: var(--blue-light); color: var(--blue); border: 1.5px solid rgba(45,108,223,.30); }
+    .case-status-badge.rejected { background: var(--red-light); color: var(--red); border: 1.5px solid rgba(214,48,48,.30); }
+
+    /* 케이스 바디 */
+    .case-body { padding: 18px; }
+
+    /* 아기 정보 */
+    .baby-info-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+      margin-bottom: 16px;
+    }
+    .baby-info-item {
+      background: var(--bg);
+      border: 1.5px solid rgba(45,108,223,.10);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px; text-align: center;
+    }
+    .bi-icon  { font-size: 18px; margin-bottom: 4px; }
+    .bi-label { font-size: 10px; font-weight: 700; color: var(--muted); }
+    .bi-value { font-size: 14px; font-weight: 900; color: var(--text); margin-top: 2px; }
+
+    /* AI 추천 요약 */
+    .ai-summary {
+      background: linear-gradient(135deg, #f0f4ff, #eef8ff);
+      border: 1.5px solid rgba(45,108,223,.18);
+      border-radius: var(--radius-sm);
+      padding: 14px 16px;
+      margin-bottom: 16px;
+    }
+    .ai-summary-title {
+      font-size: 12px; font-weight: 900; color: var(--blue);
+      margin-bottom: 10px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .ai-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: flex-start; }
+    .ai-row:last-child { margin-bottom: 0; }
+    .ai-tag {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: rgba(45,108,223,.10); border-radius: 999px;
+      padding: 3px 10px; font-size: 11px; font-weight: 800; color: var(--blue);
+      white-space: nowrap; flex-shrink: 0;
+    }
+    .ai-content { font-size: 12px; font-weight: 600; color: #3a4a6a; line-height: 1.55; }
+
+    /* 코멘트 입력 영역 */
+    .comment-area { display: none; margin-bottom: 14px; }
+    .comment-area.show { display: block; }
+    .comment-label { font-size: 12px; font-weight: 800; color: var(--muted); margin-bottom: 6px; }
+    .comment-input {
+      width: 100%; padding: 10px 14px;
+      background: #f8faff; color: var(--text);
+      border: 1.5px solid rgba(45,108,223,.25);
+      border-radius: var(--radius-sm);
+      font-family: 'Nunito', sans-serif;
+      font-size: 13px; font-weight: 600;
+      resize: vertical; outline: none;
+      transition: border-color .2s;
+      min-height: 80px;
+    }
+    .comment-input:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(45,108,223,.10);
+    }
+
+    /* 액션 버튼들 */
+    .action-row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .action-btn {
+      flex: 1; min-width: 120px; padding: 12px 16px;
+      border-radius: var(--radius-sm); border: 1.5px solid;
+      font-family: 'Nunito', sans-serif;
+      font-size: 13px; font-weight: 900;
+      cursor: pointer; transition: all .2s;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+      touch-action: manipulation;
+    }
+    .action-btn:hover { transform: translateY(-2px); }
+    .action-btn:active { transform: scale(.97); }
+    .action-btn:disabled { opacity: .5; cursor: default; transform: none !important; }
+
+    .btn-approve {
+      background: var(--green-light);
+      border-color: rgba(31,160,96,.40); color: var(--green);
+    }
+    .btn-approve:hover { background: rgba(31,160,96,.18); box-shadow: 0 4px 14px rgba(31,160,96,.20); }
+
+    .btn-modify {
+      background: var(--blue-light);
+      border-color: rgba(45,108,223,.35); color: var(--blue);
+    }
+    .btn-modify:hover { background: rgba(45,108,223,.16); box-shadow: 0 4px 14px rgba(45,108,223,.18); }
+
+    .btn-reject {
+      background: var(--red-light);
+      border-color: rgba(214,48,48,.30); color: var(--red);
+    }
+    .btn-reject:hover { background: rgba(214,48,48,.14); box-shadow: 0 4px 14px rgba(214,48,48,.14); }
+
+    /* 전송 완료 메시지 */
+    .sent-msg {
+      display: none;
+      background: linear-gradient(135deg, var(--green-light), #eefff6);
+      border: 1.5px solid rgba(31,160,96,.35);
+      border-radius: var(--radius-sm);
+      padding: 12px 16px;
+      font-size: 14px; font-weight: 800; color: var(--green);
+      text-align: center;
+      margin-top: 14px;
+      animation: slideDown .4s ease;
+    }
+    .sent-msg.show { display: block; }
+    @keyframes slideDown { from{opacity:0;transform:translateY(-8px)} to{opacity:1;transform:translateY(0)} }
+
+    /* ════════════ 이력 패널 ════════════ */
+    .history-card {
+      background: var(--card);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 18px;
+      margin-top: 22px;
+    }
+    .history-title { font-size: 14px; font-weight: 900; color: var(--text); margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }
+    .history-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 12px;
+      background: var(--bg); border-radius: var(--radius-sm);
+      border: 1.5px solid rgba(45,108,223,.08);
+      margin-bottom: 8px;
+    }
+    .history-row:last-child { margin-bottom: 0; }
+    .h-time { font-size: 11px; font-weight: 700; color: var(--muted); min-width: 70px; }
+    .h-baby { font-size: 12px; font-weight: 800; color: var(--text); flex: 1; }
+    .h-status {
+      font-size: 11px; font-weight: 800; border-radius: 999px;
+      padding: 3px 10px; border: 1.5px solid;
+    }
+    .h-status.approved { background: var(--green-light); color: var(--green); border-color: rgba(31,160,96,.30); }
+    .h-status.modified { background: var(--blue-light); color: var(--blue); border-color: rgba(45,108,223,.25); }
+
+    /* ════════════ 빈 상태 ════════════ */
+    .empty-state {
+      text-align: center; padding: 40px 20px;
+      color: var(--muted); font-size: 14px; font-weight: 700;
+    }
+    .empty-state .e-icon { font-size: 36px; margin-bottom: 10px; }
+
+    /* ════════════ 엄마 화면 링크 ════════════ */
+    .mom-link {
+      text-align: right; margin-top: 18px;
+      font-size: 11px; font-weight: 700; color: var(--muted);
+    }
+    .mom-link a { color: #ff8c69; text-decoration: none; }
+    .mom-link a:hover { text-decoration: underline; }
+
+    /* ════════════ 상태 새로고침 버튼 ════════════ */
+    .refresh-row {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .refresh-btn {
+      background: var(--blue-light); border: 1.5px solid rgba(45,108,223,.25);
+      border-radius: 999px; padding: 6px 14px;
+      font-family: 'Nunito', sans-serif;
+      font-size: 12px; font-weight: 800; color: var(--blue);
+      cursor: pointer; transition: all .2s;
+      display: flex; align-items: center; gap: 5px;
+    }
+    .refresh-btn:hover { background: rgba(45,108,223,.15); }
+
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--green); display: inline-block;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    /* ════════════ 구분선 ════════════ */
+    .divider {
+      height: 1px; background: var(--border);
+      margin: 14px 0;
+    }
+  </style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <!-- 헤더 -->
+  <div class="header">
+    <div class="header-left">
+      <div class="header-logo">🏥</div>
+      <div>
+        <div class="header-title">BabyCoach 의사 대시보드</div>
+        <div class="header-sub">AI 추천 검토 및 승인 시스템</div>
+      </div>
+    </div>
+    <div class="doctor-badge">
+      <div class="d-avatar">김</div>
+      <div class="d-name">김소아 원장</div>
+    </div>
+  </div>
+
+  <!-- 새로고침 -->
+  <div class="refresh-row">
+    <div style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:var(--muted);">
+      <span class="status-dot"></span> 실시간 연결됨
+    </div>
+    <button class="refresh-btn" onclick="loadCase()">
+      🔄 상태 새로고침
+    </button>
+  </div>
+
+  <!-- 대기 케이스 섹션 -->
+  <div class="section-header">
+    <div class="sh-icon">⏳</div>
+    <div class="sh-title">검토 대기 케이스</div>
+    <div class="sh-count" id="pendingCount">1</div>
+  </div>
+
+  <!-- 케이스 카드 -->
+  <div class="case-card" id="caseCard">
+
+    <div class="case-header">
+      <div>
+        <div class="case-id">케이스 #BC-2026-0001</div>
+        <div class="case-time" id="caseTime">접수 시각: —</div>
+      </div>
+      <div class="case-status-badge pending" id="caseStatusBadge">⏳ 검토 대기</div>
+    </div>
+
+    <div class="case-body">
+
+      <!-- 아기 정보 -->
+      <div style="font-size:12px;font-weight:900;color:var(--muted);margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px;">아기 정보</div>
+      <div class="baby-info-grid">
+        <div class="baby-info-item">
+          <div class="bi-icon">👶</div>
+          <div class="bi-label">개월 수</div>
+          <div class="bi-value">10개월</div>
+        </div>
+        <div class="baby-info-item">
+          <div class="bi-icon">⚖️</div>
+          <div class="bi-label">체중</div>
+          <div class="bi-value">8.7 kg</div>
+        </div>
+        <div class="baby-info-item">
+          <div class="bi-icon">🚫</div>
+          <div class="bi-label">알레르기</div>
+          <div class="bi-value" style="font-size:12px;">우유</div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- AI 추천 요약 -->
+      <div class="ai-summary">
+        <div class="ai-summary-title">🤖 AI 추천 내용 (검토 필요)</div>
+        <div class="ai-row">
+          <div class="ai-tag">🥄 이유식</div>
+          <div class="ai-content">두부 한 숟갈을 아주 천천히 먹여보세요. 우유 알레르기가 있으므로 유제품 성분 주의.</div>
+        </div>
+        <div class="ai-row">
+          <div class="ai-tag">🎈 놀이</div>
+          <div class="ai-content">2~3회 주고받는 짧은 놀이를 시도해보세요. 집중 시간 5분 이하로 관찰됨.</div>
+        </div>
+        <div class="ai-row">
+          <div class="ai-tag">💬 넛지</div>
+          <div class="ai-content" id="nudgeSummary">오늘은 두부 한 숟갈만 천천히 먹여보세요 🥄</div>
+        </div>
+      </div>
+
+      <!-- 코멘트 입력 (수정/반려 시 표시) -->
+      <div class="comment-area" id="commentArea">
+        <div class="comment-label" id="commentLabel">✏️ 수정 코멘트를 입력해주세요</div>
+        <textarea class="comment-input" id="commentInput" placeholder="수정 사항 또는 반려 사유를 입력해주세요..."></textarea>
+      </div>
+
+      <!-- 액션 버튼 -->
+      <div class="action-row" id="actionRow">
+        <button class="action-btn btn-approve" id="btnApprove" onclick="doAction('approved')">
+          ✅ 승인
+        </button>
+        <button class="action-btn btn-modify" id="btnModify" onclick="openModify()">
+          ✏️ 수정 후 승인
+        </button>
+        <button class="action-btn btn-reject" id="btnReject" onclick="openReject()">
+          ❌ 반려
+        </button>
+      </div>
+
+      <!-- 수정/반려 저장 버튼 (입력창 열릴 때 표시) -->
+      <div id="saveRow" style="display:none;margin-top:10px;">
+        <div style="display:flex;gap:10px;">
+          <button class="action-btn btn-approve" id="btnSave" onclick="doSave()" style="flex:2;">
+            📤 저장 후 전송
+          </button>
+          <button class="action-btn btn-reject" onclick="cancelModify()" style="flex:1;min-width:80px;">
+            취소
+          </button>
+        </div>
+      </div>
+
+      <!-- 전송 완료 메시지 -->
+      <div class="sent-msg" id="sentMsg">
+        📱 전송 완료! 엄마에게 알림이 갔습니다
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 이미 처리됨 케이스 없음 빈 상태 -->
+  <div id="noPendingState" style="display:none;">
+    <div class="empty-state">
+      <div class="e-icon">✅</div>
+      대기 중인 케이스가 없어요.<br>모든 케이스가 처리됐습니다.
+    </div>
+  </div>
+
+  <!-- 검토 이력 -->
+  <div class="history-card">
+    <div class="history-title">📋 최근 검토 이력</div>
+    <div id="historyList">
+      <div class="history-row">
+        <div class="h-time">오늘 09:14</div>
+        <div class="h-baby">8개월 · 5.9kg · 알레르기 없음</div>
+        <div class="h-status approved">✅ 승인</div>
+      </div>
+      <div class="history-row">
+        <div class="h-time">어제 21:03</div>
+        <div class="h-baby">7개월 · 7.1kg · 달걀 알레르기</div>
+        <div class="h-status modified">✏️ 수정</div>
+      </div>
+      <div class="history-row">
+        <div class="h-time">어제 15:30</div>
+        <div class="h-baby">12개월 · 9.4kg · 알레르기 없음</div>
+        <div class="h-status approved">✅ 승인</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 엄마 화면 링크 -->
+  <div class="mom-link">
+    <a href="/mom5" target="_blank">← 엄마 화면으로 돌아가기</a>
+  </div>
+
+</div><!-- /wrap -->
+
+<script>
+// ════════════════════════════════════════════════
+// localStorage HITL 상태 관리 (mom5와 공유)
+// ════════════════════════════════════════════════
+const HITL = {
+  get: () => localStorage.getItem('hitl_status') || 'pending',
+  set: v => {
+    localStorage.setItem('hitl_status', v);
+    localStorage.setItem('hitl_updated', new Date().toISOString());
+  },
+  getComment: () => localStorage.getItem('hitl_comment') || '',
+  setComment: v => localStorage.setItem('hitl_comment', v),
+  clearComment: () => localStorage.removeItem('hitl_comment'),
+};
+
+let currentAction = null; // 'modified' | 'rejected'
+
+const STATUS_CFG = {
+  pending:  { text:'⏳ 검토 대기',   cls:'pending'  },
+  approved: { text:'✅ 승인 완료',   cls:'approved' },
+  modified: { text:'✏️ 수정 완료',  cls:'modified' },
+  rejected: { text:'❌ 반려',        cls:'rejected' },
+};
+
+// ════════════════════════════════════════════════
+// 케이스 로드 (localStorage 상태 반영)
+// ════════════════════════════════════════════════
+function loadCase() {
+  const status = HITL.get();
+  const badgeEl = document.getElementById('caseStatusBadge');
+  const cfg = STATUS_CFG[status] || STATUS_CFG.pending;
+
+  badgeEl.textContent = cfg.text;
+  badgeEl.className   = `case-status-badge ${cfg.cls}`;
+
+  // 접수 시각
+  const updated = localStorage.getItem('hitl_updated');
+  document.getElementById('caseTime').textContent =
+    updated ? `마지막 변경: ${new Date(updated).toLocaleTimeString('ko-KR', {hour:'2-digit',minute:'2-digit'})}` : '접수 대기 중';
+
+  // 버튼 상태: 이미 처리됐으면 비활성화
+  const processed = status !== 'pending';
+  document.getElementById('btnApprove').disabled = processed;
+  document.getElementById('btnModify').disabled  = processed;
+  document.getElementById('btnReject').disabled  = processed;
+
+  // sentMsg 표시
+  if (processed) {
+    document.getElementById('sentMsg').classList.add('show');
+  } else {
+    document.getElementById('sentMsg').classList.remove('show');
+    cancelModify();
+  }
+}
+
+// ════════════════════════════════════════════════
+// 액션 함수들
+// ════════════════════════════════════════════════
+function doAction(status) {
+  HITL.set(status);
+  HITL.clearComment();
+  updateHistory(status, '');
+  loadCase();
+  addHistoryEntry(status, null);
+}
+
+function openModify() {
+  currentAction = 'modified';
+  const area = document.getElementById('commentArea');
+  const label = document.getElementById('commentLabel');
+  label.textContent = '✏️ 수정 코멘트를 입력해주세요';
+  document.getElementById('commentInput').placeholder = '수정 사항이나 추가 지침을 입력해주세요...';
+  area.classList.add('show');
+  document.getElementById('saveRow').style.display = 'block';
+  document.getElementById('commentInput').focus();
+}
+
+function openReject() {
+  currentAction = 'rejected';
+  const area = document.getElementById('commentArea');
+  const label = document.getElementById('commentLabel');
+  label.textContent = '❌ 반려 사유를 입력해주세요';
+  document.getElementById('commentInput').placeholder = '반려 사유를 입력해주세요...';
+  area.classList.add('show');
+  document.getElementById('saveRow').style.display = 'block';
+  document.getElementById('commentInput').focus();
+}
+
+function cancelModify() {
+  currentAction = null;
+  document.getElementById('commentArea').classList.remove('show');
+  document.getElementById('saveRow').style.display = 'none';
+  document.getElementById('commentInput').value = '';
+}
+
+function doSave() {
+  if (!currentAction) return;
+  const comment = document.getElementById('commentInput').value.trim();
+  if (!comment) {
+    document.getElementById('commentInput').style.borderColor = '#d63030';
+    document.getElementById('commentInput').focus();
+    setTimeout(() => {
+      document.getElementById('commentInput').style.borderColor = '';
+    }, 1500);
+    return;
+  }
+  HITL.set(currentAction);
+  HITL.setComment(comment);
+  cancelModify();
+  loadCase();
+  addHistoryEntry(currentAction, comment);
+  currentAction = null;
+}
+
+// ════════════════════════════════════════════════
+// 이력 추가
+// ════════════════════════════════════════════════
+function addHistoryEntry(status, comment) {
+  const list = document.getElementById('historyList');
+  const now  = new Date().toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' });
+  const cfg  = STATUS_CFG[status] || STATUS_CFG.pending;
+  const entry = document.createElement('div');
+  entry.className = 'history-row';
+  entry.innerHTML = `
+    <div class="h-time">방금 전 (${now})</div>
+    <div class="h-baby">10개월 · 8.7kg · 우유 알레르기${comment ? ' — ' + escHtml(comment.slice(0,20)) + (comment.length > 20 ? '...' : '') : ''}</div>
+    <div class="h-status ${status === 'approved' ? 'approved' : 'modified'}">${cfg.text}</div>
+  `;
+  list.insertBefore(entry, list.firstChild);
+}
+
+function updateHistory(status) { /* 이력은 addHistoryEntry에서 처리 */ }
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ════════════════════════════════════════════════
+// 초기화
+// ════════════════════════════════════════════════
+loadCase();
+
+// 다른 탭(mom5)에서 HITL 상태가 바뀌면 자동 반영
+window.addEventListener('storage', e => {
+  if (e.key === 'hitl_status') loadCase();
+});
+</script>
+</body>
+</html>

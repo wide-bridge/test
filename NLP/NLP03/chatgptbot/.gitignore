@@ -1,0 +1,5 @@
+models/chatbot_model.pt
+models/tokenizer.pkl
+data/processed/
+__pycache__/
+*.pyc
